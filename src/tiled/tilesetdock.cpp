@@ -23,6 +23,7 @@
 #include "tilesetdock.h"
 
 #include "addremovemapobject.h"
+#include "addremovetiles.h"
 #include "addremovetileset.h"
 #include "documentmanager.h"
 #include "editterraindialog.h"
@@ -32,6 +33,7 @@
 #include "mapobject.h"
 #include "movetileset.h"
 #include "objectgroup.h"
+#include "preferences.h"
 #include "propertiesdialog.h"
 #include "terrain.h"
 #include "tile.h"
@@ -60,6 +62,8 @@
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <QDebug>
 
 using namespace Tiled;
 using namespace Tiled::Internal;
@@ -175,6 +179,7 @@ TilesetDock::TilesetDock(QWidget *parent):
     mDeleteTileset(new QAction(this)),
     mRenameTileset(new QAction(this)),
     mEditTerrain(new QAction(this)),
+    mAddTiles(new QAction(this)),
     mTilesetMenuButton(new TilesetMenuButton(this)),
     mTilesetMenu(new QMenu(this)),
     mTilesetActionGroup(new QActionGroup(this)),
@@ -233,6 +238,8 @@ TilesetDock::TilesetDock(QWidget *parent):
             SLOT(renameTileset()));
     connect(mEditTerrain, SIGNAL(triggered()),
             SLOT(editTerrain()));
+    connect(mAddTiles, SIGNAL(triggered()),
+            SLOT(addTiles()));
 
     mToolBar->setIconSize(QSize(16, 16));
     mToolBar->addAction(mImportTileset);
@@ -241,6 +248,7 @@ TilesetDock::TilesetDock(QWidget *parent):
     mToolBar->addAction(mDeleteTileset);
     mToolBar->addAction(mRenameTileset);
     mToolBar->addAction(mEditTerrain);
+    mToolBar->addAction(mAddTiles);
 
     mZoomable = new Zoomable(this);
     mZoomable->setZoomFactors(QVector<qreal>() << 0.25 << 0.5 << 0.75 << 1.0 << 1.25 << 1.5 << 1.75 << 2.0 << 4.0);
@@ -323,6 +331,8 @@ void TilesetDock::setMapDocument(MapDocument *mapDocument)
                 SLOT(tilesetNameChanged(Tileset*)));
         connect(mMapDocument, SIGNAL(tilesetFileNameChanged(Tileset*)),
                 SLOT(updateActions()));
+        connect(mMapDocument, SIGNAL(tilesetChanged(Tileset*)),
+                SLOT(tilesetChanged(Tileset*)));
 
         QString cacheName = mCurrentTilesets.take(mMapDocument);
         for (int i = 0; i < mTabBar->count(); ++i) {
@@ -401,6 +411,7 @@ void TilesetDock::updateActions()
     mPropertiesTileset->setEnabled(view && !external);
     mDeleteTileset->setEnabled(view);
     mEditTerrain->setEnabled(view && !external);
+    mAddTiles->setEnabled(view && !external);
 }
 
 void TilesetDock::updateCurrentTiles()
@@ -613,6 +624,7 @@ void TilesetDock::retranslateUi()
     mDeleteTileset->setText(tr("&Remove Tileset"));
     mRenameTileset->setText(tr("Rena&me Tileset"));
     mEditTerrain->setText(tr("Edit &Terrain Information"));
+    mAddTiles->setText(tr("Add Tiles"));
 }
 
 Tileset *TilesetDock::currentTileset() const
@@ -712,6 +724,32 @@ void TilesetDock::editTerrain()
 
     EditTerrainDialog editTerrainDialog(mMapDocument, tileset, this);
     editTerrainDialog.exec();
+}
+
+void TilesetDock::addTiles()
+{
+    Tileset *tileset = currentTileset();
+    if (!tileset)
+        return;
+
+    Preferences *prefs = Preferences::instance();
+    const QString startLocation = QFileInfo(prefs->lastPath(Preferences::ImageFile)).absolutePath();
+
+    QStringList files = QFileDialog::getOpenFileNames(this, tr("Add Tiles"), startLocation);
+    QList<Tile*> tiles;
+    int id = tileset->tileCount();
+
+    foreach (const QString &file, files) {
+        const QPixmap image(file);
+        if (!image.isNull()) {
+            tiles.append(new Tile(image, file, id, tileset));
+            ++id;
+        } else {
+            qWarning() << "Could not open" << file;
+        }
+    }
+
+    mMapDocument->undoStack()->push(new AddTiles(mMapDocument, tileset, tiles));
 }
 
 void TilesetDock::tilesetNameChanged(Tileset *tileset)
